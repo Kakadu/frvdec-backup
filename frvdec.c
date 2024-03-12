@@ -1,6 +1,7 @@
 
 #include "frvdec.h"
 
+#include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -407,10 +408,45 @@ static int frv_decode2(uint16_t inst, FrvOptions opt,
   return 2;
 }
 
+#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BINARY(byte)  \
+((byte) & 0x80 ? '1' : '0'), \
+    ((byte) & 0x40 ? '1' : '0'), \
+    ((byte) & 0x20 ? '1' : '0'), \
+    ((byte) & 0x10 ? '1' : '0'), \
+    ((byte) & 0x08 ? '1' : '0'), \
+    ((byte) & 0x04 ? '1' : '0'), \
+    ((byte) & 0x02 ? '1' : '0'), \
+    ((byte) & 0x01 ? '1' : '0')
+
+
 int frv_decode(size_t bufsz, const uint8_t* buf, FrvOptions opt,
                FrvInst* restrict frv_inst) {
-  if (UNLIKELY(bufsz < 2))
+  if (UNLIKELY(bufsz < 4))
     return FRV_PARTIAL;
+//const uint32_t popcnt_____ = 0b00100110000000100000000100110011;
+  const uint32_t popcnt_____ = 0b01100000001001010001001100010011;
+  const uint32_t popcnt_code = 0b11111111111111111111111111111111; // cpop t1, a0 :)
+
+  const uint32_t fuck = buf[0] + (buf[1]<<8) + (buf[2]<<16) + (buf[3]<<24);
+  printf("FUCK CPOP %s %d, bufsz = %u\n", __FILE__, __LINE__, bufsz);
+  printf(BYTE_TO_BINARY_PATTERN " " BYTE_TO_BINARY_PATTERN " " BYTE_TO_BINARY_PATTERN " " BYTE_TO_BINARY_PATTERN"\n",
+    BYTE_TO_BINARY(0xFF & fuck >> 24),
+    BYTE_TO_BINARY(0xFF & fuck >> 16),
+    BYTE_TO_BINARY(0xFF & fuck >> 8),
+    BYTE_TO_BINARY(0xFF & fuck ) );
+
+  if ((fuck & popcnt_code) == popcnt_____ && bufsz >=4) {
+
+    frv_inst->rd = (fuck >> 20) & 0b11111;
+    frv_inst->rs1 = (fuck >> 12) & 0b11111;
+    frv_inst->rs2 = frv_inst->rs3 = 0;
+    frv_inst->imm = 0x13;
+    frv_inst->mnem = FRV_CPOP;
+    printf(" CPOP %s %d\n", __FILE__, __LINE__);
+    fflush(stdout);
+    return 4;
+  }
   if ((buf[0] & 0x03) != 0x03)
     return frv_decode2(LOAD_LE_2(buf), opt, frv_inst);
   if ((buf[0] & 0x1c) != 0x1c) {
